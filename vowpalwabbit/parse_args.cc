@@ -527,6 +527,8 @@ const char* are_features_compatible(vw& vw1, vw& vw2)
 
   if (vw1.ignore_some && !std::equal(vw1.ignore.begin(), vw1.ignore.end(), vw2.ignore.begin())) return "ignore";
 
+  if(!std::equal(vw1.ignore_tag.begin(), vw1.ignore_tag.end(), vw2.ignore_tag.begin())) return "ignore_tag";
+
   if (vw1.ignore_some_linear != vw2.ignore_some_linear) return "ignore_some_linear";
 
   if (vw1.ignore_some_linear &&
@@ -1058,6 +1060,7 @@ void parse_example_tweaks(options_i& options, vw& all)
       .add(make_option("passes", all.numpasses).help("Number of Training Passes"))
       .add(make_option("initial_pass_length", all.pass_length).help("initial number of examples per pass"))
       .add(make_option("examples", all.max_examples).help("number of examples to parse"))
+      .add(make_option("ignore_tag", all.ignore_tag).keep().help("ignore examples containing the tag <arg>"))
       .add(make_option("min_prediction", all.sd->min_label).help("Smallest prediction to output"))
       .add(make_option("max_prediction", all.sd->max_label).help("Largest prediction to output"))
       .add(make_option("sort_features", all.example_parser->sort_features)

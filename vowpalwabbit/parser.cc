@@ -376,7 +376,9 @@ void enable_sources(vw& all, bool quiet, size_t passes, input_options& input_opt
     {
       socklen_t address_size = sizeof(address);
       if (getsockname(all.example_parser->bound_sock, (sockaddr*)&address, &address_size) < 0)
-      { *(all.trace_message) << "getsockname: " << VW::strerror_to_string(errno) << endl; }
+      {
+        *(all.trace_message) << "getsockname: " << VW::strerror_to_string(errno) << endl;
+      }
       std::ofstream port_file;
       port_file.open(input_options.port_file.c_str());
       if (!port_file.is_open()) THROW("error writing port file: " << input_options.port_file);
@@ -639,7 +641,18 @@ void setup_examples(vw& all, v_array<example*>& examples)
 
 void setup_example(vw& all, example* ae)
 {
-  if (all.example_parser->sort_features && ae->sorted == false) unique_sort_features(all.parse_mask, ae);
+  bool ignoreExample = true;
+  for (size_t i = 0; i < ae->tag.size(); i++)
+  {
+    if (ae->tag[i] != all.ignore_tag[i])
+    {
+      ignoreExample = false;
+      break;
+    }
+  }
+
+  if (!ignoreExample && all.example_parser->sort_features && ae->sorted == false)
+    unique_sort_features(all.parse_mask, ae);
 
   if (all.example_parser->write_cache)
   {
@@ -653,8 +666,10 @@ void setup_example(vw& all, example* ae)
   ae->loss = 0.;
   ae->_debug_current_reduction_depth = 0;
 
+if(!ignoreExample){
   ae->example_counter = (size_t)(all.example_parser->end_parsed_examples.load());
   if (!all.example_parser->emptylines_separate_examples) all.example_parser->in_pass_counter++;
+}
 
   // Determine if this example is part of the holdout set.
   ae->test_only = is_test_only(all.example_parser->in_pass_counter, all.holdout_period, all.holdout_after,
@@ -662,14 +677,25 @@ void setup_example(vw& all, example* ae)
   // If this example has a test only label then it is true regardless.
   ae->test_only |= all.example_parser->lbl_parser.test_label(&ae->l);
 
-  if (all.example_parser->emptylines_separate_examples &&
-      (example_is_newline(*ae) &&
-          (all.example_parser->lbl_parser.label_type != label_type_t::ccb || CCB::ec_is_example_unset(*ae))))
+  if (ignoreExample ||
+      (all.example_parser->emptylines_separate_examples &&
+          (example_is_newline(*ae) &&
+              (all.example_parser->lbl_parser.label_type != label_type_t::ccb || CCB::ec_is_example_unset(*ae)))))
     all.example_parser->in_pass_counter++;
 
   ae->weight = all.example_parser->lbl_parser.get_weight(&ae->l);
-
-  if (all.ignore_some)
+  if (ignoreExample)
+  {
+    for (unsigned char* i = ae->indices.begin(); i != ae->indices.end(); i++)
+    {
+      // delete namespace
+      ae->feature_space[*i].clear();
+      memmove(i, i + 1, (ae->indices.end() - (i + 1)) * sizeof(*i));
+      ae->indices.end()--;
+      i--;
+    }
+  }
+  else if (all.ignore_some)
     for (unsigned char* i = ae->indices.begin(); i != ae->indices.end(); i++)
       if (all.ignore[*i])
       {
@@ -688,19 +714,22 @@ void setup_example(vw& all, example* ae)
   if (!all.limit_strings.empty()) feature_limit(all, ae);
 
   uint64_t multiplier = (uint64_t)all.wpp << all.weights.stride_shift();
-
-  if (multiplier != 1)  // make room for per-feature information.
-    for (features& fs : *ae)
-      for (auto& j : fs.indicies) j *= multiplier;
   ae->num_features = 0;
   ae->total_sum_feat_sq = 0;
-  for (const features& fs : *ae)
+  if (!ignoreExample)
   {
-    ae->num_features += fs.size();
-    ae->total_sum_feat_sq += fs.sum_feat_sq;
+    if (multiplier != 1)  // make room for per-feature information.
+      for (features& fs : *ae)
+        for (auto& j : fs.indicies) j *= multiplier;
+
+    for (const features& fs : *ae)
+    {
+      ae->num_features += fs.size();
+      ae->total_sum_feat_sq += fs.sum_feat_sq;
+    }
   }
 
-  if (all.interactions.quadratics_wildcard_expansion)
+  if (!ignoreExample && all.interactions.quadratics_wildcard_expansion)
   {
     // lock while adding interactions since reductions might also be adding their own interactions
     std::unique_lock<std::mutex> lock(all.interactions.mut);
@@ -714,11 +743,16 @@ void setup_example(vw& all, example* ae)
   // Set the interactions for this example to the global set.
   ae->interactions = &all.interactions;
 
-  size_t new_features_cnt;
-  float new_features_sum_feat_sq;
-  INTERACTIONS::eval_count_of_generated_ft(all, *ae, new_features_cnt, new_features_sum_feat_sq);
-  ae->num_features += new_features_cnt;
-  ae->total_sum_feat_sq += new_features_sum_feat_sq;
+  if (!ignoreExample)
+  {
+    size_t new_features_cnt;
+    float new_features_sum_feat_sq;
+    INTERACTIONS::eval_count_of_generated_ft(all, *ae, new_features_cnt, new_features_sum_feat_sq);
+    ae->num_features += new_features_cnt;
+    ae->total_sum_feat_sq += new_features_sum_feat_sq;
+  }
+  else
+    empty_example(all, *ae);
 }
 }  // namespace VW
 

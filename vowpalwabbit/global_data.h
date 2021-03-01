@@ -520,6 +520,7 @@ public:
   parameters weights;
 
   size_t max_examples;  // for TLC
+  std::string ignore_tag;
 
   bool hash_inv;
   bool print_invert;
